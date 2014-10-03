@@ -1,0 +1,50 @@
+                          Upload Information Template for Hobbes.nmsu.edu
+                          ===============================================
+
+        Archive Filename: libtool-2.4.2.zip
+       Short Description: libtool v2.4.2 for OS/2
+        Long Description: libtool v2.4.2 for OS/2.
+This is GNU Libtool, a generic library support script.  Libtool hides
+the complexity of using shared libraries behind a consistent, portable
+interface.
+
+v2.4.2 :
+    Changed -shortname to -os2dllname
+
+v2.2.6b-r3 :
+    Added -shortname option to specify a short name for a DLL
+    Fixed failure to find an absolute path for reexecution
+
+v2.2.6b-r2 :
+    Pass -Zxxx flags when linking DLLs
+    Remove trailing CR of a executing command in func_show_eval ()
+    Set lt_cv_sys_max_cmd_len to -1
+    Do not relink when linking any uninstalled libtool libraries
+    Do not export _DLL_InitTerm
+
+v2.2.6b :
+    Specify 'TERMINSTANCE'.
+    Replaced 'SINGLE NONSHARED' with 'MULTIPLE NONSHARED'.
+    Replaced 'LIBPATH' with 'BEGINLIBPATH'.
+
+
+      Proposed directory
+           for placement: /pub/os2/dev/util
+
+               Your name: KO Myung-Hun
+           Email address: komh@chollian.net
+    Program contact name: (same)
+   Program contact email: (same)
+             Program URL: (none) 
+
+      Would you like the
+   contact email address
+    included in listings? yes
+
+Operating System/Version: 
+ Additional requirements: kLIBC065
+
+                Replaces: (none)
+
+
+

@@ -1,0 +1,405 @@
+diff -uNr  NEWS.org NEWS
+--- NEWS.org	2011-10-17 19:17:16.000000000 +0900
++++ NEWS	2013-04-28 20:19:20.000000000 +0900
+@@ -8,6 +8,8 @@
+     package names.  This can be used to build some static libraries with PIC
+     objects while building others with non-PIC objects.
+ 
++  - Added -os2dllname option to specify a OS/2 DLL name (OS/2 only)
++
+   - Initial support for Go, using the gccgo compiler.
+ 
+   - On Mac OS X .dylib is now tried as well as .so with
+diff -uNr  doc/libtool.texi.org doc/libtool.texi
+--- doc/libtool.texi.org	2011-10-17 19:17:04.000000000 +0900
++++ doc/libtool.texi	2013-04-29 19:16:06.000000000 +0900
+@@ -1547,6 +1547,10 @@
+ @item -objectlist @var{file}
+ Use a list of object files found in @var{file} to specify objects.
+ 
++@item -os2dllname @var{name}
++If @var{name} is specified, replace a name for a DLL with @var{suffix} (effect
++on OS/2 only)
++
+ @item -precious-files-regex @var{regex}
+ Prevents removal of files from the temporary output directory whose
+ names match this regular expression.  You might specify @samp{\.bbg?$}
+diff -uNr  libltdl/config/ltmain.m4sh.org libltdl/config/ltmain.m4sh
+--- libltdl/config/ltmain.m4sh.org	2013-04-18 23:26:04.000000000 +0900
++++ libltdl/config/ltmain.m4sh	2013-04-29 19:15:24.000000000 +0900
+@@ -398,7 +398,7 @@
+   test "$opt_debug" = : || func_append preserve_args " --debug"
+ 
+   case $host in
+-    *cygwin* | *mingw* | *pw32* | *cegcc*)
++    *cygwin* | *mingw* | *pw32* | *cegcc* | *os2*)
+       # don't eliminate duplications in $postdeps and $predeps
+       opt_duplicate_compiler_generated_deps=:
+       ;;
+@@ -728,7 +728,7 @@
+ func_convert_core_path_wine_to_w32 ()
+ {
+   $opt_debug
+-  # unfortunately, winepath doesn't convert paths, only file names 
++  # unfortunately, winepath doesn't convert paths, only file names
+   func_convert_core_path_wine_to_w32_result=""
+   if test -n "$1"; then
+     oldIFS=$IFS
+@@ -1635,6 +1635,7 @@
+   -no-undefined     declare that a library does not refer to external symbols
+   -o OUTPUT-FILE    create OUTPUT-FILE from the specified objects
+   -objectlist FILE  Use a list of object files found in FILE to specify objects
++  -os2dllname NAME  specify a OS/2 DLL name(effect on OS/2 only)
+   -precious-files-regex REGEX
+                     don't remove output files matching REGEX
+   -release RELEASE  specify package release information
+@@ -2224,8 +2225,17 @@
+ 	    # so we also need to try rm && ln -s.
+ 	    for linkname
+ 	    do
+-	      test "$linkname" != "$realname" \
+-		&& func_show_eval "(cd $destdir && { $LN_S -f $realname $linkname || { $RM $linkname && $LN_S $realname $linkname; }; })"
++	      if test "$linkname" != "$realname"; then
++		case $host_os in
++		os2*)
++		  # Create import libraries instead of links on OS/2
++		  func_show_eval "(emximp -o $destdir/$linkname $dir/${linkname%%_dll.$libext}.def)"
++		  ;;
++		*)
++		  func_show_eval "(cd $destdir && { $LN_S -f $realname $linkname || { $RM $linkname && $LN_S $realname $linkname; }; })"
++		  ;;
++		esac
++	      fi
+ 	    done
+ 	  fi
+ 
+@@ -4610,6 +4620,11 @@
+ 	  prev=
+ 	  continue
+ 	  ;;
++	os2dllname)
++	  os2dllname_cmds="$ECHO $arg | cut -b -8"
++	  prev=
++	  continue
++	  ;;
+ 	precious_regex)
+ 	  precious_files_regex="$arg"
+ 	  prev=
+@@ -4914,6 +4929,11 @@
+ 	continue
+ 	;;
+ 
++      -os2dllname)
++	prev=os2dllname
++	continue
++	;;
++
+       -o) prev=output ;;
+ 
+       -precious-files-regex)
+@@ -5075,6 +5095,17 @@
+         continue
+         ;;
+ 
++      # OS/2 uses -Zxxx to specify OS/2-specific options
++      -Z*)
++	compiler_flags="$compiler_flags $arg"
++	func_append compile_command " $arg"
++	func_append finalize_command " $arg"
++	case $arg in
++	-Zlinker | -Zstack) prev=xcompiler;;
++	esac
++	continue
++	;;
++
+       # Some other compiler flag.
+       -* | +*)
+         func_quote_for_eval "$arg"
+@@ -5429,33 +5460,66 @@
+ 	    # If $allow_libtool_libs_with_static_runtimes && $deplib is a stdlib,
+ 	    # We need to do some special things here, and not later.
+ 	    if test "X$allow_libtool_libs_with_static_runtimes" = "Xyes" ; then
+-	      case " $predeps $postdeps " in
+-	      *" $deplib "*)
+-		if func_lalib_p "$lib"; then
+-		  library_names=
+-		  old_library=
+-		  func_source "$lib"
+-		  for l in $old_library $library_names; do
+-		    ll="$l"
+-		  done
+-		  if test "X$ll" = "X$old_library" ; then # only static version available
+-		    found=no
+-		    func_dirname "$lib" "" "."
+-		    ladir="$func_dirname_result"
+-		    lib=$ladir/$old_library
+-		    if test "$linkmode,$pass" = "prog,link"; then
+-		      compile_deplibs="$deplib $compile_deplibs"
+-		      finalize_deplibs="$deplib $finalize_deplibs"
+-		    else
+-		      deplibs="$deplib $deplibs"
+-		      test "$linkmode" = lib && newdependency_libs="$deplib $newdependency_libs"
++	      case $host_os in
++	      os2*)
++		case " $predeps $postdeps " in
++		*" $deplib "*) ;;
++		*)
++		  if func_lalib_p "$lib"; then
++		    library_names=
++		    old_library=
++		    func_source "$lib"
++		    for l in $old_library $library_names; do
++		      ll="$l"
++		    done
++		    if test "X$ll" = "X$old_library" ; then # only static version available
++		      found=false
++		      func_dirname "$lib" "" "."
++		      ladir="$func_dirname_result"
++		      lib=$ladir/$old_library
++		      if test prog,link = "$linkmode,$pass"; then
++			compile_deplibs="$deplib $compile_deplibs"
++			finalize_deplibs="$deplib $finalize_deplibs"
++		      else
++			deplibs="$deplib $deplibs"
++			test lib = "$linkmode" && newdependency_libs="$deplib $newdependency_libs"
++		      fi
++		      continue
+ 		    fi
+-		    continue
+ 		  fi
+-		fi
++		  ;;
++		esac
+ 		;;
+-	      *) ;;
+-	      esac
++	      *)
++	        case " $predeps $postdeps " in
++	        *" $deplib "*)
++		  if func_lalib_p "$lib"; then
++		    library_names=
++		    old_library=
++		    func_source "$lib"
++		    for l in $old_library $library_names; do
++		      ll="$l"
++		    done
++		    if test "X$ll" = "X$old_library" ; then # only static version available
++		      found=false
++		      func_dirname "$lib" "" "."
++		      ladir="$func_dirname_result"
++		      lib=$ladir/$old_library
++		      if test prog,link = "$linkmode,$pass"; then
++			compile_deplibs="$deplib $compile_deplibs"
++			finalize_deplibs="$deplib $finalize_deplibs"
++		      else
++			deplibs="$deplib $deplibs"
++			test lib = "$linkmode" && newdependency_libs="$deplib $newdependency_libs"
++		      fi
++		      continue
++		    fi
++		  fi
++		  ;;
++	        *) ;;
++	        esac
++	        ;;
++	      esac # case $host_os in
+ 	    fi
+ 	  fi
+ 	  ;; # -l
+@@ -5902,7 +5966,7 @@
+ 	if test -n "$library_names" &&
+ 	   { test "$use_static_libs" = no || test -z "$old_library"; }; then
+ 	  case $host in
+-	  *cygwin* | *mingw* | *cegcc*)
++	  *cygwin* | *mingw* | *cegcc* | *os2*)
+ 	      # No point in relinking DLLs because paths are not encoded
+ 	      func_append notinst_deplibs " $lib"
+ 	      need_relink=no
+@@ -6285,6 +6349,28 @@
+ 		    fi
+ 		  fi
+ 		  ;;
++		*-*-os2*)
++		  depdepl=
++		  deplibrary_names=
++		  if test "$build_old_libs" != yes && test "$link_static" != yes ; then
++		    eval deplibrary_names=`${SED} -n -e 's/^library_names=\(.*\)$/\1/p' $deplib`
++		  fi
++		  if test -z "$deplibrary_names" ; then
++		    # fall back to static library
++		    eval deplibrary_names=`${SED} -n -e 's/^old_library=\(.*\)$/\1/p' $deplib`
++		  fi
++		  if test -n "$deplibrary_names" ; then
++		    for tmp in $deplibrary_names ; do
++		      depdepl=$tmp
++		    done
++		    if test -f "$absdir/$objdir/$depdepl" ; then
++		      depdepl="$absdir/$objdir/$depdepl"
++		      compiler_flags="$compiler_flags $depdepl"
++		      linker_flags="$linker_flags $depdepl"
++		    fi
++		  fi
++		  path=
++		  ;;
+ 		*)
+ 		  path="-L$absdir/$objdir"
+ 		  ;;
+@@ -7781,7 +7867,15 @@
+ 	# Create links to the real library.
+ 	for linkname in $linknames; do
+ 	  if test "$realname" != "$linkname"; then
+-	    func_show_eval '(cd "$output_objdir" && $RM "$linkname" && $LN_S "$realname" "$linkname")' 'exit $?'
++	    case $host_os in
++	    os2*)
++	      # Create import libraries instead of links on OS/2
++	      func_show_eval '(emximp -o $output_objdir/$linkname $output_objdir/$libname.def)' 'exit $?'
++	      ;;
++	    *)
++	      func_show_eval '(cd "$output_objdir" && $RM "$linkname" && $LN_S "$realname" "$linkname")' 'exit $?'
++	      ;;
++	    esac
+ 	  fi
+ 	done
+ 
+diff -uNr  libltdl/m4/libtool.m4.org libltdl/m4/libtool.m4
+--- libltdl/m4/libtool.m4.org	2011-10-17 19:17:04.000000000 +0900
++++ libltdl/m4/libtool.m4	2013-04-28 20:19:40.000000000 +0900
+@@ -2225,6 +2225,7 @@
+ else
+   sys_lib_search_path_spec="/lib /usr/lib /usr/local/lib"
+ fi])
++os2dllname_cmds=
+ library_names_spec=
+ libname_spec='lib$name'
+ soname_spec=
+@@ -2751,9 +2752,15 @@
+   libname_spec='$name'
+   shrext_cmds=".dll"
+   need_lib_prefix=no
+-  library_names_spec='$libname${shared_ext} $libname.a'
++  # OS/2 limits a length of a DLL basename up to 8 characters.
++  # So there is need to use a short name instead of a original name
++  # longer than 8 characters.
++  os2dllname_cmds='$ECHO $libname | cut -b -8'
++  library_names_spec='`eval $os2dllname_cmds`${shared_ext} ${libname}_dll.$libext'
+   dynamic_linker='OS/2 ld.exe'
+-  shlibpath_var=LIBPATH
++  shlibpath_var=BEGINLIBPATH
++  sys_lib_search_path_spec="/lib /usr/lib /usr/local/lib"
++  sys_lib_dlsearch_path_spec="$sys_lib_search_path_spec"
+   ;;
+ 
+ osf3* | osf4* | osf5*)
+@@ -2899,6 +2906,7 @@
+ _LT_DECL([], [shlibpath_overrides_runpath], [0],
+     [Is shlibpath searched before the hard-coded library search path?])
+ _LT_DECL([], [libname_spec], [1], [Format of library name prefix])
++_LT_DECL([], [os2dllname_cmds], [2], [Command to make a OS/2 DLL name])
+ _LT_DECL([], [library_names_spec], [1],
+     [[List of archive names.  First name is the real one, the rest are links.
+     The last name is the one that the linker finds with -lNAME]])
+@@ -3361,6 +3369,9 @@
+ tpf*)
+   lt_cv_deplibs_check_method=pass_all
+   ;;
++os2*)
++  lt_cv_deplibs_check_method=pass_all
++  ;;
+ esac
+ ])
+ 
+@@ -3911,6 +3922,11 @@
+       # (--disable-auto-import) libraries
+       m4_if([$1], [GCJ], [],
+ 	[_LT_TAGVAR(lt_prog_compiler_pic, $1)='-DDLL_EXPORT'])
++      case $host_os in
++      os2*)
++        _LT_TAGVAR(lt_prog_compiler_static, $1)='-Bstatic'
++        ;;
++      esac
+       ;;
+     darwin* | rhapsody*)
+       # PIC is the default on this platform
+@@ -4229,6 +4245,11 @@
+       # (--disable-auto-import) libraries
+       m4_if([$1], [GCJ], [],
+ 	[_LT_TAGVAR(lt_prog_compiler_pic, $1)='-DDLL_EXPORT'])
++      case $host_os in
++      os2*)
++        _LT_TAGVAR(lt_prog_compiler_static, $1)='-Bstatic'
++        ;;
++      esac
+       ;;
+ 
+     darwin* | rhapsody*)
+@@ -4312,6 +4333,11 @@
+       # built for inclusion in a dll (and should export symbols for example).
+       m4_if([$1], [GCJ], [],
+ 	[_LT_TAGVAR(lt_prog_compiler_pic, $1)='-DDLL_EXPORT'])
++      case $host_os in
++      os2*)
++        _LT_TAGVAR(lt_prog_compiler_static, $1)='-Bstatic'
++        ;;
++      esac
+       ;;
+ 
+     hpux9* | hpux10* | hpux11*)
+@@ -4772,6 +4798,16 @@
+       _LT_TAGVAR(link_all_deplibs, $1)=yes
+       ;;
+ 
++    os2*)
++      _LT_TAGVAR(hardcode_libdir_flag_spec, $1)='-L$libdir'
++      _LT_TAGVAR(hardcode_minus_L, $1)=yes
++      _LT_TAGVAR(allow_undefined_flag, $1)=unsupported
++      shrext_cmds=".dll"
++      _LT_TAGVAR(archive_cmds, $1)='$ECHO "LIBRARY `eval $os2dllname_cmds` INITINSTANCE TERMINSTANCE" > $output_objdir/$libname.def~$ECHO "DESCRIPTION \"$libname\"" >> $output_objdir/$libname.def~$ECHO DATA >> $output_objdir/$libname.def~$ECHO "  MULTIPLE NONSHARED" >> $output_objdir/$libname.def~$ECHO EXPORTS >> $output_objdir/$libname.def~emxexp $libobjs | $SED /"_DLL_InitTerm"/d >> $output_objdir/$libname.def~$CC -Zdll -Zcrtdll -o $lib $libobjs $deplibs $compiler_flags $output_objdir/$libname.def'
++      _LT_TAGVAR(old_archive_From_new_cmds, $1)='emximp -o $output_objdir/${libname}_dll.a $output_objdir/$libname.def'
++      _LT_TAGVAR(enable_shared_with_static_runtimes, $1)=yes
++      ;;
++
+     interix[[3-9]]*)
+       _LT_TAGVAR(hardcode_direct, $1)=no
+       _LT_TAGVAR(hardcode_shlibpath_var, $1)=no
+@@ -5395,8 +5431,10 @@
+       _LT_TAGVAR(hardcode_libdir_flag_spec, $1)='-L$libdir'
+       _LT_TAGVAR(hardcode_minus_L, $1)=yes
+       _LT_TAGVAR(allow_undefined_flag, $1)=unsupported
+-      _LT_TAGVAR(archive_cmds, $1)='$ECHO "LIBRARY $libname INITINSTANCE" > $output_objdir/$libname.def~$ECHO "DESCRIPTION \"$libname\"" >> $output_objdir/$libname.def~echo DATA >> $output_objdir/$libname.def~echo " SINGLE NONSHARED" >> $output_objdir/$libname.def~echo EXPORTS >> $output_objdir/$libname.def~emxexp $libobjs >> $output_objdir/$libname.def~$CC -Zdll -Zcrtdll -o $lib $libobjs $deplibs $compiler_flags $output_objdir/$libname.def'
+-      _LT_TAGVAR(old_archive_from_new_cmds, $1)='emximp -o $output_objdir/$libname.a $output_objdir/$libname.def'
++      shrext_cmds=".dll"
++      _LT_TAGVAR(archive_cmds, $1)='$ECHO "LIBRARY `eval $os2dllname_cmds` INITINSTANCE TERMINSTANCE" > $output_objdir/$libname.def~$ECHO "DESCRIPTION \"$libname\"" >> $output_objdir/$libname.def~$ECHO DATA >> $output_objdir/$libname.def~$ECHO "  MULTIPLE NONSHARED" >> $output_objdir/$libname.def~$ECHO EXPORTS >> $output_objdir/$libname.def~emxexp $libobjs | $SED /"_DLL_InitTerm"/d >> $output_objdir/$libname.def~$CC -Zdll -Zcrtdll -o $lib $libobjs $deplibs $compiler_flags $output_objdir/$libname.def'
++      _LT_TAGVAR(old_archive_From_new_cmds, $1)='emximp -o $output_objdir/${libname}_dll.a $output_objdir/$libname.def'
++      _LT_TAGVAR(enable_shared_with_static_runtimes, $1)=yes
+       ;;
+ 
+     osf3*)
+@@ -6188,6 +6226,16 @@
+         _LT_DARWIN_LINKER_FEATURES($1)
+ 	;;
+ 
++      os2*)
++	_LT_TAGVAR(hardcode_libdir_flag_spec, $1)='-L$libdir'
++	_LT_TAGVAR(hardcode_minus_L, $1)=yes
++	_LT_TAGVAR(allow_undefined_flag, $1)=unsupported
++	shrext_cmds=".dll"
++	_LT_TAGVAR(archive_cmds, $1)='$ECHO "LIBRARY `eval $os2dllname_cmds` INITINSTANCE TERMINSTANCE" > $output_objdir/$libname.def~$ECHO "DESCRIPTION \"$libname\"" >> $output_objdir/$libname.def~$ECHO DATA >> $output_objdir/$libname.def~$ECHO "  MULTIPLE NONSHARED" >> $output_objdir/$libname.def~$ECHO EXPORTS >> $output_objdir/$libname.def~emxexp $libobjs | $SED /"_DLL_InitTerm"/d >> $output_objdir/$libname.def~$CC -Zdll -Zcrtdll -o $lib $libobjs $deplibs $compiler_flags $output_objdir/$libname.def'
++	_LT_TAGVAR(old_archive_From_new_cmds, $1)='emximp -o $output_objdir/${libname}_dll.a $output_objdir/$libname.def'
++	_LT_TAGVAR(enable_shared_with_static_runtimes, $1)=yes
++	;;
++	
+       dgux*)
+         case $cc_basename in
+           ec++*)
+diff -uNr  libltdl/m4/ltdl.m4.org libltdl/m4/ltdl.m4
+--- libltdl/m4/ltdl.m4.org	2011-10-17 19:17:04.000000000 +0900
++++ libltdl/m4/ltdl.m4	2013-04-18 22:49:36.000000000 +0900
+@@ -703,7 +703,7 @@
+ beos*)
+   LT_DLLOADERS="$LT_DLLOADERS ${lt_dlopen_dir+$lt_dlopen_dir/}load_add_on.la"
+   ;;
+-cygwin* | mingw* | os2* | pw32*)
++cygwin* | mingw* | pw32*)
+   AC_CHECK_DECLS([cygwin_conv_path], [], [], [[#include <sys/cygwin.h>]])
+   LT_DLLOADERS="$LT_DLLOADERS ${lt_dlopen_dir+$lt_dlopen_dir/}loadlibrary.la"
+   ;;
